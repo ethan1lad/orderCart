@@ -2,7 +2,7 @@ import time
 
 from consts import orderCartAddr, minBoxValue, txFee
 from helpers import getUnspentBoxesByAddress, getSaleBoxByNFT, getRoyaltyInfo, treeToAddress, boxIdToBinary, \
-    encodeCollNfts, encodeLong, encodeLongArray, encodeInt, signTx
+    encodeCollNfts, encodeLong, encodeLongArray, encodeInt, signTx, getBoxFromTx
 
 import traceback
 
@@ -32,6 +32,8 @@ def attemptRefund(box, buyer, value, maxTxFee):
     print()
     print(txId)
     print()
+    if txId != -1:
+        return True
 
 
 def processOrderCart(box):
@@ -41,41 +43,39 @@ def processOrderCart(box):
     initialMaxTxFee = int(box["additionalRegisters"]["R7"]["renderedValue"])
     buyerAddr = treeToAddress(initialBuyer)
     if attemptRefund(box, buyerAddr, box['value'], initialMaxTxFee):
-        print("HI FAILURE")
-    print(initialNfts)
+        return
     nfts = initialNfts[1:-1].split(",")
     prices = initialPrices[1:-1].split(",")
     items = list(zip(nfts, prices))
-    print(items)
     currBox = box
     for item in items:
-        currNfts = currBox["additionalRegisters"]["R4"]["renderedValue"][1:-1].split(",")
-        currPrices = currBox["additionalRegisters"]["R5"]["renderedValue"][1:-1].split(",")
+        if "trueValue" in currBox["additionalRegisters"]["R4"]:
+            currNfts = currBox["additionalRegisters"]["R4"]["trueValue"]
+            currPrices = currBox["additionalRegisters"]["R5"]["trueValue"]
+        else:
+            currNfts = currBox["additionalRegisters"]["R4"]["renderedValue"][1:-1].split(",")
+            currPrices = currBox["additionalRegisters"]["R5"]["renderedValue"][1:-1].split(",")
         targetNft = item[0]
         targetPrice = int(item[1])
         targetNftIndex = currNfts.index(item[0])
         saleBox = getSaleBoxByNFT(targetNft, targetPrice)
-        if box == -1:
+        if saleBox == -1:
             continue
         currBoxValue = int(currBox["value"])
         finalBoxValue = currBoxValue - targetPrice - initialMaxTxFee
         royaltyInfo = getRoyaltyInfo(targetNft)
-        seller = saleBox["additionalRegisters"]["R5"]["renderedValue"]
+        try:
+            print(saleBox)
+            seller = saleBox["additionalRegisters"]["R5"]["renderedValue"]
+        except Exception:
+            print("er")
+            continue
         sellerAddr = treeToAddress(seller)
         sellerValue = targetPrice * (98 - royaltyInfo["percentage"]) / 100
         shValue = targetPrice * 0.02
         currIntPrices = [eval(i) for i in prices]
         del currNfts[targetNftIndex]
         del currIntPrices[targetNftIndex]
-
-        print("values")
-        print(currBoxValue)
-        print(targetPrice)
-        print(sellerAddr)
-        print(shValue)
-        print(minBoxValue)
-        print(finalBoxValue)
-        print(minBoxValue)
 
         transactionToSign = \
             {
@@ -132,14 +132,12 @@ def processOrderCart(box):
                         }
                     }
                 ],
-                "fee": txFee,
+                "fee": 3*txFee,
                 "inputsRaw":
-                    [boxIdToBinary(box["boxId"]), boxIdToBinary(saleBox["boxId"])],
+                    [boxIdToBinary(currBox["boxId"]), boxIdToBinary(saleBox["boxId"])],
                 "dataInputsRaw":
                     []
             }
-        print("roys")
-        print(royaltyInfo)
         if royaltyInfo["percentage"] != 0:
             transactionToSign["requests"][2]["address"] = royaltyInfo["address"]
             transactionToSign["requests"][2]["value"] = int(royaltyInfo["percentage"] * targetPrice / 100)
@@ -149,7 +147,20 @@ def processOrderCart(box):
         print()
         print(txId)
         print()
-        break
+        time.sleep(5)
+        if txId != -1:
+            currBox = {
+                "value": finalBoxValue,
+                "boxId": getBoxFromTx(txId)["boxId"],
+                "additionalRegisters": {
+                    "R4": {
+                        "trueValue": currNfts
+                    },
+                    "R5": {
+                        "trueValue": currPrices
+                    }
+                }
+            }
 
 
 
@@ -161,8 +172,9 @@ def orderCartJob():
     if len(foundBoxes) > 0:
         for box in foundBoxes:
             try:
-                print("Order Cart Txid", box["transactionId"])
-                processOrderCart(box)
+                if int(box["value"]) > 1000000:
+                    print("Order Cart Txid", box["transactionId"])
+                    processOrderCart(box)
             except Exception:
                 print("Program Crash!" + "\n")
                 print(traceback.format_exc())
