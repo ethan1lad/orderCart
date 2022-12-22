@@ -20,8 +20,7 @@ def getRequest(url, headers={}):
     return res
 
 def getSaleBoxByNFT(nft, price):
-    print("https://api.ergoplatform.com/api/v1/boxes/unspent/byTokenId/"+ nft)
-    res = getRequest("https://api.ergoplatform.com/api/v1/boxes/unspent/byTokenId/"+ nft+ "?limit=500")
+    res = getRequest("https://api.ergoplatform.com/api/v1/boxes/unspent/byTokenId/"+ nft+ "?limit=100")
     if res == -1:
         return -1
     res = json.loads(res.text)
